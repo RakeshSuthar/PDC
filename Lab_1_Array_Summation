@@ -1,0 +1,63 @@
+#include<stdio.h>
+#include<string.h>
+#include<math.h>
+#include "mpi.h"
+
+int main( int argc, char* argv[] ){
+    int p, my_rank, source, dest = 0, tag = 0;
+    MPI_Status status;
+
+    MPI_Init( &argc, &argv );
+    MPI_Comm_rank( MPI_COMM_WORLD, &my_rank );
+    MPI_Comm_size( MPI_COMM_WORLD, &p );
+
+    if( my_rank ){
+        int i, width, local_sum = 0;
+
+        // Recieve partial_array
+        MPI_Recv( &width, 1, MPI_INT, 0, tag, MPI_COMM_WORLD, &status );
+        int a[width];
+        MPI_Recv( &a, width, MPI_INT, 0, tag, MPI_COMM_WORLD, &status );
+
+        // Compute and send partial_sum
+        for( i = 0; i < width; i++ )
+            local_sum += a[i];
+        MPI_Send( &local_sum, 1, MPI_INT, 0, tag, MPI_COMM_WORLD );
+
+    } else{
+        int i, n, local_sum, global_sum = 0;
+
+        // Input from console
+        printf( "Enter the size of array...\n" );
+        scanf( "%d", &n );
+        int a[n];
+        printf( "Enter %d array elements...\n", n );
+        for( i = 0; i < n; i++ )
+            scanf( "%d", &a[i] );
+
+        // Send partial array to processes
+        int start_index, width;
+        width = ceil( (float)n/(float)(p-1) );
+        start_index = -width;
+        for( i = 1; i < p; i++ ){
+            start_index += width;
+            if( start_index + width >= n )
+                width = n - start_index;
+            MPI_Send( &width, 1, MPI_INT, i, tag, MPI_COMM_WORLD );
+            MPI_Send( &a[start_index], width, MPI_INT, i, tag, MPI_COMM_WORLD );
+        }
+
+        // Recieve partial sum from processes
+        for( i = 1; i < p; i++ ){
+            MPI_Recv( &local_sum, 1, MPI_INT, i, tag, MPI_COMM_WORLD, &status );
+            printf("Local sum from process %d is %d\n", status.MPI_SOURCE, local_sum );
+            global_sum += local_sum;
+        }
+
+        // Output to console
+        printf("Total sum: %d\n", global_sum );
+    }
+
+    MPI_Finalize();
+    return 0;
+}
