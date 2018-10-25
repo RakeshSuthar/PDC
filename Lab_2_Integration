@@ -1,0 +1,99 @@
+#include<stdio.h>
+#include<math.h>
+#include<string.h>
+#include "mpi.h"
+
+void print_function_list(){
+	printf("1. y=x\n");
+	printf("2. y=sin(x)\n");
+	printf("3. y=cos(X)\n");
+	printf("4. y=ln(X)\n");
+	printf("5. y=log(X)\n");
+}
+
+float function_at( float x, int flag ){
+    switch ( flag ) {
+        case 1:
+            return x;
+        case 2:
+            return sin(x);
+        case 3:
+            return cos(x);
+        case 4:
+            return log(x);
+        case 5:
+            return log10(x);
+    }
+}
+
+int main( int argc, char* argv[] ){
+    int p, my_rank, source, dest = 0, tag = 0;
+    MPI_Status status;
+
+    MPI_Init( &argc, &argv );
+    MPI_Comm_rank( MPI_COMM_WORLD, &my_rank );
+    MPI_Comm_size( MPI_COMM_WORLD, &p );
+
+    if( my_rank ){
+        float a, b, n, h, i, x, f, partial_integration = 0;
+
+        MPI_Recv( &f, 1, MPI_INT, 0, tag, MPI_COMM_WORLD, &status );
+        MPI_Recv( &a, 1, MPI_FLOAT, 0, tag, MPI_COMM_WORLD, &status );
+        MPI_Recv( &b, 1, MPI_FLOAT, 0, tag, MPI_COMM_WORLD, &status );
+        MPI_Recv( &n, 1, MPI_FLOAT, 0, tag, MPI_COMM_WORLD, &status );
+
+        h = (b-a)/n;
+        x = a + h;
+        while( x < b ){
+            partial_integration += function_at( x, f );
+            x += h;
+        }
+        partial_integration += (a/2) + (b/2);
+        partial_integration *= h;
+
+        MPI_Send( &partial_integration, 1, MPI_FLOAT, 0, tag, MPI_COMM_WORLD );
+    } else{
+        int i, f;
+        float a, b, n, h, local_stripes, lower_limit, upper_limit;
+        float partial_integration, total_integration = 0;
+
+        // Input from console
+        printf( "Select function for integration...\n" );
+		print_function_list();
+		scanf("%d", &f);
+        printf( "Enter lower limit, upper limit and number of stripes...\n" );
+        scanf( "%f%f%f", &a, &b, &n );
+        h = (b-a)/n;
+
+        // Send partial areas to processes
+        local_stripes = ceil( n/(float)(p-1) );
+        upper_limit = a;
+        for( i = 1; i < p; i++ ){
+            lower_limit = upper_limit;
+            upper_limit = lower_limit + local_stripes*h;
+            if( lower_limit >= b )
+                break;
+            if( upper_limit > b ){
+                upper_limit = b;
+                local_stripes = n - local_stripes*( i-1 );
+            }
+            MPI_Send( &f, 1, MPI_INT, i, tag, MPI_COMM_WORLD );
+            MPI_Send( &lower_limit, 1, MPI_FLOAT, i, tag, MPI_COMM_WORLD );
+            MPI_Send( &upper_limit, 1, MPI_FLOAT, i, tag, MPI_COMM_WORLD );
+            MPI_Send( &local_stripes, 1, MPI_FLOAT, i, tag, MPI_COMM_WORLD );
+        }
+
+        // Recieve partial integration from processes
+        for( i = 1; i < p; i++ ){
+            MPI_Recv( &partial_integration, 1, MPI_FLOAT, i, tag, MPI_COMM_WORLD, &status );
+            printf( "Partial integration from process %d is: %f\n", status.MPI_SOURCE, partial_integration );
+            total_integration += partial_integration;
+        }
+
+        // Output to console
+        printf( "Total integration: %f\n", total_integration );
+    }
+
+    MPI_Finalize();
+    return 0;
+}
